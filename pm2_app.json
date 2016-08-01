@@ -1,0 +1,30 @@
+{
+  "apps" : [{
+    "name"        : "ewanju",
+    "script"      : "app.js",
+    "watch": true,
+    "ignore_watch" : ["node_modules", "logs","logs/pids","tests"],
+    "watch_options": {
+      "followSymlinks": false
+    },
+    "node_args"   : "--harmony",
+    "merge_logs"  : true,
+    "log_date_format"  : "YYYY-MM-DD HH:mm Z",
+    "error_file"       : "./logs/node-app.stderr.log",
+    "out_file"         : "./logs/node-app.stdout.log",
+    "pid_file"         : "./logs/pids/node-app.pid",
+    "instances"         : 2,
+    "env": {
+      "NODE_ENV": "development",
+      "AWESOME_SERVICE_API_TOKEN": "xxx"
+    },
+    "env_production" : {
+       "NODE_ENV": "production"
+    },
+    "env_staging" : {
+       "NODE_ENV" : "staging",
+       "TEST"     : true
+    }
+  }]
+}
+
