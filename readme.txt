@@ -7,3 +7,6 @@ Just for stash test.
 
 This a dev branch and will never be deleted.
 Please everyone follow this,thx.
+
+
+New test about not point the remote branch and do the pushing.
