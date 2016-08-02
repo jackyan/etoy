@@ -1,0 +1,5 @@
+*.log
+*.html
+logs/*
+node_modules/*
+
