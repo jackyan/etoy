@@ -16,4 +16,9 @@ router.get('/deal_detail', controller.getDealDetail);
 router.get('/search', controller.searchPage);
 router.get('/search_result', controller.search);
 
+
+router.get('/get_openid',controller.getOpenId);
+router.post('/order',controller.checkLogin,controller.uniorder);
+router.post('/pay_notice',controller.payNotice);
+
 module.exports = router;

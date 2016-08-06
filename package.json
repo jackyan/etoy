@@ -40,7 +40,12 @@
     "response-time": "2.3.1",
     "serve-favicon": "~2.3.0",
     "utility": "1.6.0",
-    "validator": "4.5.0"
+    "validator": "4.5.0",
+    "md5": "^2.0.0",
+    "request": "^2.45.0",
+    "sha1": "^1.1.0",
+    "underscore": "^1.7.0",
+    "xml2js": "^0.4.4"
   },
   "devDependencies": {
     "coveralls": "2.11.6",

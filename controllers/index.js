@@ -13,8 +13,32 @@ var Detail = require('../models/detail.js');
 var Focused = require('../models/focused.js');
 var tools = require('../common/tools.js');
 var url = require('url');
-
+var request = require('request');
+var Payment = require('../lib/payment').Payment;
+var middleware = require('../lib/middleware');
 var defaultDistance = 50;
+var comm = {
+    appId: 'wx278f3c9ac083158f',
+    mchId: '1314082701',
+    grantType: 'authorization_code',
+    secret: 'e9516bab3c6bf08c7cc6f2e21f6961cb'
+};
+
+var uris = {
+    notifyUri: 'http://www.e-wanju.com/pay_notice',
+    redirectUri: 'https://www.e-wanju.com/get_openid',
+    openidUri: 'https://open.weixin.qq.com/connect/oauth2/authorize?appid='+ comm.appId + '&redirect_uri='+ urlencoded(this.redirectUri) + '&response_type=code&scope=snsapi_base&state=',
+    tokenUri: 'https://api.weixin.qq.com/sns/oauth2/access_token?appid=' + comm.appId + '&secret=' + comm.secret + '&code='
+};
+
+var initConfig = {
+    appId: comm.appId,
+    mchId: comm.mchId,
+    notifyUrl: uris.notifyUri
+};
+
+var payment = new Payment(initConfig);
+
 //登录页
 exports.loginPage = function (req, res) {
     res.render('login', {
@@ -63,14 +87,16 @@ exports.login = function (req, res) {
 
     redis.get(config.redis_prefix + mobile, function (err, result) {
         if (err) {
-            res.send(tools.toJsonString(-2, 'missing params'));
+            return res.send(tools.toJsonString(-2, 'missing params'));
         }
         if (code == result) {
             User.getByMobile(mobile, function (err, user) {
                 if (err) {
-                    res.send(tools.toJsonString(-2, 'missing params'));
+                    return res.send(tools.toJsonString(-2, 'missing params'));
                 }
+                var callbackuri = uris.redirectUri + mobiile + '#wechat_redirect';
                 if (!user) {
+                    // get openid
                     var newUser = new User({
                         mobile: mobile,
                         wechat_id: wechat_id,
@@ -83,13 +109,26 @@ exports.login = function (req, res) {
                         if (err) {
                             res.send(tools.toJsonString(-2, 'missing params'));
                         } else {
-                            redis.del(config.redis_prefix + mobile);
-                            req.session.user = user;//用户信息存入 session
-                            res.send(tools.toJsonString(0, '', {location: req.session.rurl}));
+                            request.get(callbackuri).on('response', function(response) {
+                                if(response.statusCode == 200){
+                                    redis.del(config.redis_prefix + mobile);
+                                    req.session.user = user;//用户信息存入 session
+                                    res.send(tools.toJsonString(0, '', {location: req.session.rurl}));
+                                }else{
+                                    console.log(err);
+                                    return res.send(tools.toJsonString(-100, 'system err'));
+                                }
+                            });
                         }
                     });
                 } else {
                     logger.info('user already exist');
+                    if(!user.openid) {
+                        request.get(callbackuri).on('error', function(err) {
+                            console.log(err);
+                            return res.send(tools.toJsonString(-100, 'system err'));
+                        });
+                    }
                     req.session.user = user;//用户信息存入 session
                     res.send(tools.toJsonString(0, '', {location: req.session.rurl}));
                 }
@@ -590,6 +629,90 @@ exports.dealToy = function (req, res) {
     });
 };
 
+
+//统一下单
+exports.uniorder = function(req,res){
+    var mobile = req.session.user.mobile;
+    var openid = req.session.user.openid;
+    var total = parseFloat(req.query.total);
+    var orderTitle = req.query.order_title;
+    var goodId = req.query.good_id;
+    var order = {
+        body: orderTitle,
+        out_trade_no: goodId + tools.mathRand(5) + (+new Date),
+        total_fee: total,
+        spbill_create_ip: req.ip,
+        trade_type: 'JSAPI'
+    };
+    if(!openid){
+        User.getByMobile(mobile,function(err,user){
+            if(err){
+                return res.send(tools.toJsonString(-3,'db err'));
+            }else{
+                order.openid = user.openid;
+                payment.getBrandWCPayRequestParams(order,function(err,payargs){
+                    res.json(payargs);
+                });
+            }
+        });
+    }else{
+        payment.getBrandWCPayRequestParams(order,function(err,payargs){
+            res.json(payargs);
+        });
+    }
+};
+
+
+//支付结果通知
+exports.payNotice = function(req,res){
+    middleware(initConfig).getNotify().done(function(message, req, res, next) {
+        var openid = message.openid;
+        var order_id = message.out_trade_no;
+        var attach = {};
+        try{
+            attach = JSON.parse(message.attach);
+        }catch(e){}
+
+        /**
+         * 查询订单，在自己系统里把订单标为已处理
+         * 如果订单之前已经处理过了直接返回成功
+         */
+        res.reply('success');
+
+        /**
+         * 有错误返回错误，不然微信会在一段时间里以一定频次请求你
+         * res.reply(new Error('...'))
+         */
+    });
+};
+
+
+//获取openid
+exports.getOpenId = function(req,res){
+    var code = req.query.code;
+    var mobile = req.query.state;
+
+    if(!code || !mobile){
+        return res.send(tools.toJsonString(-3, 'param missing'));
+    }
+
+    var tokenUri = uris.tokenUri + code + '&grant_type=' + comm.grantType;
+    request.get(tokenUri).on('response',function(response){
+        if(response.statusCode == 200){
+            ret = JSON.parse(JSON.stringify(response));
+            var openId = ret.openid;
+            User.update(mobile,'openid',openId,function(err){
+                if(err){
+                    logger.log(err);
+                    res.send(tools.toJsonString(-5, 'db err'));
+                }
+            });
+        }else{
+            res.send(tools.toJsonString(-4, 'request openid err'));
+        }
+    });
+
+};
 
 /**
  * 检查是否为未登录

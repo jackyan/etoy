@@ -154,8 +154,7 @@ User.updatePublish = function (mobile, integration, callback) {
             }
 
             collection.findAndModify({"mobile": mobile}, [], {
-                $inc: {integration: integration},
-                $inc: {p_count: 1}
+                $inc: {integration: integration,p_count:1}
             }, {new: true}, function (err, user) {
                 pool.release(db);
                 if (err) {
