@@ -45,19 +45,34 @@ Toy.getNearToyWithAggregate(116.360911, 39.948602, 50, 10,2,function (err, toys)
 });
 console.log('-------end to getNearToyWithAggregate------------');*/
 
-console.log('------- start to seachToy ------------');
+/*console.log('------- start to seachToy ------------');
 Toy.searchToyWithTypeAndName(116.360911, 39.948602, 50, 2,'可租',function (err, toys) {
     if (err) {
         //res.status(200);
         console.log(err.message);
     } else {
-        /*toys.results.forEach(function (ob, index) {
+        /!*toys.results.forEach(function (ob, index) {
          console.log(ob.obj);
-         });*/
+         });*!/
         console.log(toys);
     }
 });
-console.log('-------end to search------------');
+console.log('-------end to search------------');*/
+var newUser = new User({
+    mobile: '18501355208',
+    wechat_id: '18501355208',
+    sex: 'N',
+    address: 'BJ',
+    latitude: 43.02,
+    longitude: 42.68
+});
+newUser.save(function(err,user){
+    if(err){
+        console.log(err);
+    }else{
+        console.log(user);
+    }
+});
 
 /*Toy.getNearToyWithoutStatus(116.360911, 39.948602,3, function (err, toys) {
  console.log('end getNearToyWithoutStatus');

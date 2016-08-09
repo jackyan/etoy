@@ -9,6 +9,7 @@ var store = require('../common/store');
 var User = require('../models/user.js');
 var Toy = require('../models/toy.js');
 var Deal = require('../models/deal.js');
+var Order = require('../models/order.js');
 var Detail = require('../models/detail.js');
 var Focused = require('../models/focused.js');
 var tools = require('../common/tools.js');
@@ -26,8 +27,7 @@ var comm = {
 
 var uris = {
     notifyUri: 'http://www.e-wanju.com/pay_notice',
-    redirectUri: 'https://www.e-wanju.com/get_openid',
-    openidUri: 'https://open.weixin.qq.com/connect/oauth2/authorize?appid='+ comm.appId + '&redirect_uri='+ urlencoded(this.redirectUri) + '&response_type=code&scope=snsapi_base&state=',
+    openidUri: 'https://open.weixin.qq.com/connect/oauth2/authorize?appid='+ comm.appId + '&redirect_uri='+ encodeURIComponent('https://www.e-wanju.com/get_openid') + '&response_type=code&scope=snsapi_base&state=',
     tokenUri: 'https://api.weixin.qq.com/sns/oauth2/access_token?appid=' + comm.appId + '&secret=' + comm.secret + '&code='
 };
 
@@ -94,7 +94,7 @@ exports.login = function (req, res) {
                 if (err) {
                     return res.send(tools.toJsonString(-2, 'missing params'));
                 }
-                var callbackuri = uris.redirectUri + mobiile + '#wechat_redirect';
+                //var openiduri = uris.openidUri + mobile + '#wechat_redirect';
                 if (!user) {
                     // get openid
                     var newUser = new User({
@@ -109,26 +109,13 @@ exports.login = function (req, res) {
                         if (err) {
                             res.send(tools.toJsonString(-2, 'missing params'));
                         } else {
-                            request.get(callbackuri).on('response', function(response) {
-                                if(response.statusCode == 200){
-                                    redis.del(config.redis_prefix + mobile);
-                                    req.session.user = user;//用户信息存入 session
-                                    res.send(tools.toJsonString(0, '', {location: req.session.rurl}));
-                                }else{
-                                    console.log(err);
-                                    return res.send(tools.toJsonString(-100, 'system err'));
-                                }
-                            });
+                            redis.del(config.redis_prefix + mobile);
+                            req.session.user = user;//用户信息存入 session
+                            res.send(tools.toJsonString(0, '', {location: req.session.rurl}));
                         }
                     });
                 } else {
                     logger.info('user already exist');
-                    if(!user.openid) {
-                        request.get(callbackuri).on('error', function(err) {
-                            console.log(err);
-                            return res.send(tools.toJsonString(-100, 'system err'));
-                        });
-                    }
                     req.session.user = user;//用户信息存入 session
                     res.send(tools.toJsonString(0, '', {location: req.session.rurl}));
                 }
@@ -536,7 +523,7 @@ exports.dealToy = function (req, res) {
                                             if (err) {
                                                 res.status(200).send(tools.toJsonString(-2, '[dealToy publisherDeal.save] error'));
                                             } else {
-                                                res.status(200).send(tools.toJsonString(0, '', {location: '/my_toy_list?status=2'}));
+                                                res.status(200).send(tools.toJsonString(0, '', {location: '/my_toy_list?status=2',deal_id:booked._id}));
                                             }
                                         });
                                     }
@@ -613,7 +600,7 @@ exports.dealToy = function (req, res) {
                                                 if (err) {
                                                     res.status(200).send(tools.toJsonString(-2, '[dealToy salerDeal.save] error'));
                                                 } else {
-                                                    res.status(200).send(tools.toJsonString(0, ' ', {location: '/my_toy_list?status=1'}));
+                                                    res.status(200).send(tools.toJsonString(0, ' ', {location: '/my_toy_list?status=1',deal_id:booked._id}));
                                                 }
                                             });
                                         }
@@ -634,56 +621,141 @@ exports.dealToy = function (req, res) {
 exports.uniorder = function(req,res){
     var mobile = req.session.user.mobile;
     var openid = req.session.user.openid;
+    var dealid = req.query.deal_id;
     var total = parseFloat(req.query.total);
     var orderTitle = req.query.order_title;
-    var goodId = req.query.good_id;
-    var order = {
-        body: orderTitle,
-        out_trade_no: goodId + tools.mathRand(5) + (+new Date),
-        total_fee: total,
-        spbill_create_ip: req.ip,
-        trade_type: 'JSAPI'
+    var goodsId = req.query.goods_id;
+    if(!dealid){
+        return res.send(tools.toJsonString(-1,'missing dealid'));
+    }
+
+    var params = {
+        mobile : mobile,
+        dealid : dealid,
+        order : {
+            mobile : mobile,
+            body: orderTitle,
+            out_trade_no: goodsId + tools.mathRand(5) + (+new Date),
+            total_fee: total,
+            spbill_create_ip: req.ip,
+            trade_type: 'JSAPI'
+        }
     };
+
     if(!openid){
         User.getByMobile(mobile,function(err,user){
             if(err){
                 return res.send(tools.toJsonString(-3,'db err'));
             }else{
-                order.openid = user.openid;
-                payment.getBrandWCPayRequestParams(order,function(err,payargs){
-                    res.json(payargs);
-                });
+                if(!user.openid){
+                    return res.send(tools.toJsonString(-4,'empty openid'));
+                }
+                params.order.openid = user.openid;
+                doUniOrder(params,res);
             }
         });
     }else{
-        payment.getBrandWCPayRequestParams(order,function(err,payargs){
-            res.json(payargs);
-        });
+        doUniOrder(params,res);
     }
 };
 
 
 //支付结果通知
-exports.payNotice = function(req,res){
+exports.payCommit = function(req,res){
     middleware(initConfig).getNotify().done(function(message, req, res, next) {
-        var openid = message.openid;
-        var order_id = message.out_trade_no;
-        var attach = {};
-        try{
-            attach = JSON.parse(message.attach);
-        }catch(e){}
+        var order_commit = {
+            order_id : message.out_trade_no,
+            transaction_id : message.transaction_id,
+            time_end : message.time_end,
+            cash_fee : message.cash_fee,
+            bank_type : message.bank_type,
+            fee_type : message.fee_type,
+            status : message.return_code
+        };
 
-        /**
-         * 查询订单，在自己系统里把订单标为已处理
-         * 如果订单之前已经处理过了直接返回成功
-         */
-        res.reply('success');
-
-        /**
-         * 有错误返回错误，不然微信会在一段时间里以一定频次请求你
-         * res.reply(new Error('...'))
-         */
+        if(!message.out_trade_no || message.transaction_id){
+            res.reply(new Error('missing must params'));
+        }else{
+            var attach = {};
+            try{
+                attach = JSON.parse(message.attach);
+            }catch(e){
+                logger.info(e);
+            }
+            //update order
+            Order.commit(order_commit,function(err){
+                if(err){
+                    logger.info(err);
+                }
+                res.reply('success');
+            });
+        }
     });
+};
+
+
+//订单查询
+exports.queryOrder = function(req,res){
+    var outTradeNo = req.query.out_trade_no;
+    if(!outTradeNo){
+        return res.send(tools.toJsonString(-1,'empty out_trade_no'));
+    }
+    Order.query({'out_trade_no' : outTradeNo},function(err,order){
+        var queryQQ = false;
+        if(err){
+            queryQQ = true;
+        }else{
+            if(!order.status){
+                queryQQ = true;
+            }
+        }
+        if(queryQQ == true){
+            payment.orderQuery({out_trade_no:outTradeNo},function(err,data){
+                res.reply(data);
+            });
+        }else{
+            res.reply(order);
+        }
+    });
+};
+
+
+//关闭订单
+exports.closeOrder = function(req,res){
+    var outTradeNo = req.query.out_trade_no;
+    if(!outTradeNo){
+        res.send(tools.toJsonString(-1,'missing out_trade_no'));
+    }else{
+        payment.closeOrder({out_trade_no:outTradeNo},function(err,data){
+            res.reply(data);
+        });
+    }
+};
+
+
+//下载支付对账单
+exports.downloadBill = function(req,res){
+    var billDate = req.query.bill_date;
+
+    if(!billDate){
+        res.send(tools.toJsonString(-1,'missing bill_date'));
+    }else{
+        //bill_date: "20140913"
+        payment.downloadBill({
+            bill_date: billDate,
+            bill_type: "ALL"
+        }, function(err, data){
+            // 账单列表
+            var list = data.list;
+            // 账单统计信息
+            var stat = data.stat;
+            var retObj = {
+                bill: list,
+                stat: stat
+            };
+            res.json(retObj);
+        });
+    }
 };
 
 
@@ -705,6 +777,8 @@ exports.getOpenId = function(req,res){
                 if(err){
                     logger.log(err);
                     res.send(tools.toJsonString(-5, 'db err'));
+                }else{
+                    res.send(tools.toJsonString(0, 'success'));
                 }
             });
         }else{
@@ -762,6 +836,33 @@ exports.checkLogin = function (req, res, next) {
     next();
 };
 
+
+//下单公共Function
+function doUniOrder(params,res){
+    var order = params.order;
+    payment.getBrandWCPayRequestParams(order,function(err,payargs){
+        var order2db = new Order({
+            mobile : order.mobile,
+            openid : order.openid,
+            out_trade_no : order.out_trade_no,
+            total_price : order.total_fee,
+            order_titile : order.body,
+            order_type : order.trade_type,
+            pre_status : payargs.return_code,
+            deal_id : params.dealid
+        });
+        order2db.save(order2db,function(err,ord){
+            Deal.update(params.dealid,'out_trade_no',order.out_trade_no,function(err){
+                if(err){
+                    logger.info(err);
+                }else{
+                    res.json(payargs);
+                }
+            });
+
+        });
+    });
+}
 
 function PublishToy(req, res, params) {
     var query = url.parse(req.url, true).query;

@@ -115,7 +115,7 @@ Deal.update = function (id, changename, changevalue, callback) {
                 pool.release(db);
                 return callback(err);
             }
-            collection.update({"id": id}, {$set:{changename: changevalue}},
+            collection.update({_id: ObjectID(id)}, {$set:{changename: changevalue}},
                 function (err, result) {
                     pool.release(db);
                     if (err) {

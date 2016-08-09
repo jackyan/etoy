@@ -19,6 +19,8 @@ router.get('/search_result', controller.search);
 
 router.get('/get_openid',controller.getOpenId);
 router.post('/order',controller.checkLogin,controller.uniorder);
-router.post('/pay_notice',controller.payNotice);
+router.post('/pay_commit',controller.payCommit);
+router.get('/query_order',controller.checkLogin,controller.queryOrder);
+router.post('/close_order',controller.checkLogin,controller.closeOrder);
 
 module.exports = router;
